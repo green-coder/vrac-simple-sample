@@ -1,6 +1,7 @@
 (ns simple.reframe-core
   (:require [reagent.dom :as dom]
             [re-frame.core :as rf]
+            [re-frame.db :as rf-db]
             [clojure.string :as str]))
 
 ;; -- Domino 2 - Event Handlers -----------------------------------------------
@@ -10,23 +11,33 @@
   (fn [coeffects]
     (assoc coeffects :now (js/Date.))))
 
+(rf/reg-fx
+  :db-changes
+  (fn [changes]
+    (when (seq changes)
+      (swap! rf-db/app-db (fn [db]
+                            (reduce (fn [db [path value]]
+                                      (assoc-in db path value))
+                                    db
+                                    changes))))))
+
 (rf/reg-event-fx
  :initialize
  [(rf/inject-cofx :now)]
  (fn [{:keys [now]} _]
-   {:db {:time now
-         :time-color "#f88"}}))
+   {:db-changes {[:time] now
+                 [:time-color] "#f88"}}))
 
-(rf/reg-event-db
+(rf/reg-event-fx
  :time-color-change
- (fn [db [_ new-color-value]]
-   (assoc db :time-color new-color-value)))
+ (fn [{:keys [db]} [_ new-color-value]]
+   {:db-changes {[:time-color] new-color-value}}))
 
 (rf/reg-event-fx
   :update-timer
   [(rf/inject-cofx :now)]
   (fn [{:keys [db now]} _]
-    {:db (assoc db :time now)}))
+    {:db-changes {[:time] now}}))
 
 
 ;; -- Domino 4 - Query  -------------------------------------------------------
