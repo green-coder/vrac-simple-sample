@@ -59,30 +59,33 @@
   :timer/create
   [(inject-new-ids 1) (rf/inject-cofx :time/now)]
   (fn [{:keys [id-provider/new-ids time/now]} _]
-    (let [[timer-id] new-ids]
-      {:vrac.db/changes {[:timer/by-id timer-id] {:timer/id timer-id
-                                                  :timer/start-time now
-                                                  :timer/display-value (time-in-ms->display-value 0)
-                                                  :color "#888"}}})))
+    (let [[timer-id] new-ids
+          timer-collection-path [:timer/by-id]]
+      {:vrac.db/changes {(conj timer-collection-path timer-id) {:timer/id timer-id
+                                                                :timer/start-time now
+                                                                :timer/display-value (time-in-ms->display-value 0)
+                                                                :color "#888"}}})))
 
 (rf/reg-event-fx
   :timer/delete
   (fn [{:keys [db]} [_ timer-id]]
-    (let [timers (get db :timer/by-id)]
-      {:vrac.db/changes {[:timer/by-id] (dissoc timers timer-id)}})))
+    (let [timer-collection-path [:timer/by-id]
+          timers (get-in db timer-collection-path)]
+      {:vrac.db/changes {timer-collection-path (dissoc timers timer-id)}})))
 
 (rf/reg-event-fx
  :timer/change-color
- (fn [{:keys [db]} [_ timer-id new-color]]
-   {:vrac.db/changes {[:timer/by-id timer-id :color] new-color}}))
+ (fn [{:keys [db]} [_ color-path new-color]]
+   {:vrac.db/changes {color-path new-color}}))
 
 (rf/reg-event-fx
  :timer/update-current-time
  [(rf/inject-cofx :time/now)]
- (fn [{:keys [db time/now]} [_ timer-id]]
-   (let [start-time (get-in db [:timer/by-id timer-id :timer/start-time])
+ (fn [{:keys [db time/now]} [_ timer-path]]
+   (let [start-time-path (conj timer-path :timer/start-time)
+         start-time (get-in db start-time-path)
          display-value (time-in-ms->display-value (- now start-time))]
-     {:vrac.db/changes {[:timer/by-id timer-id :timer/display-value] display-value}})))
+     {:vrac.db/changes {(conj timer-path :timer/display-value) display-value}})))
 
 
 ;; -- Domino 4 - Query  -------------------------------------------------------
@@ -110,7 +113,7 @@
     (r/create-class
       {:component-did-mount
        (fn [this]
-         (->> (js/setInterval #(rf/dispatch [:timer/update-current-time timer-id]) 1000)
+         (->> (js/setInterval #(rf/dispatch [:timer/update-current-time [:timer/by-id timer-id]]) 1000)
               (reset! interval-handle)))
 
        :component-will-unmount
@@ -127,7 +130,7 @@
             [:div.color-input
              [:input {:type "text"
                       :value (:color timer)
-                      :on-change #(rf/dispatch [:timer/change-color timer-id (-> % .-target .-value)])}]]
+                      :on-change #(rf/dispatch [:timer/change-color [:timer/by-id timer-id :color] (-> % .-target .-value)])}]]
             [:button {:on-click #(rf/dispatch [:timer/delete timer-id])} "Delete timer"]]))})))
 
 
