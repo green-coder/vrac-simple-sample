@@ -4,4 +4,4 @@
 
  :builds {:client {:target     :browser
                    :output-dir "resources/public/js"
-                   :modules    {:client {:init-fn simple.core/run}}}}}
+                   :modules    {:client {:init-fn simple.reframe-core/run}}}}}
