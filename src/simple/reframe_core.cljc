@@ -1,18 +1,22 @@
 (ns simple.reframe-core
-  (:require [reagent.dom :as dom]
+  (:require [reagent.core :as r]
+            [reagent.dom :as dom]
             [re-frame.core :as rf]
             [re-frame.db :as rf-db]
             [clojure.string :as str]))
 
-;; -- Domino 2 - Event Handlers -----------------------------------------------
+;; -- Setup - coeffects -------------------------------------------------------
 
 (rf/reg-cofx
-  :now
+  :time/now
   (fn [coeffects]
-    (assoc coeffects :now (js/Date.))))
+    (assoc coeffects :time/now (js/Date.))))
+
+
+;; -- Setup - effects ---------------------------------------------------------
 
 (rf/reg-fx
-  :db-changes
+  :vrac.db/changes
   (fn [changes]
     (when (seq changes)
       (swap! rf-db/app-db (fn [db]
@@ -21,60 +25,127 @@
                                     db
                                     changes))))))
 
-(rf/reg-event-fx
+
+;; -- Setup - interceptors ----------------------------------------------------
+
+(defn inject-new-ids [nb-ids]
+  (rf/->interceptor
+    :id :id-provider/new-ids
+    :before (fn [context]
+              (let [next-id (-> context :coeffects :db (:id-provider/next-id 0))
+                    new-next-id (+ next-id nb-ids)]
+                (assoc-in context [:coeffects :id-provider/new-ids] (vec (range next-id new-next-id)))))
+    :after (fn [context]
+             (let [coeffect-db (get-in context [:coeffects :db])
+                   new-next-id (-> coeffect-db (:id-provider/next-id 0) (+ nb-ids))
+                   effect-db (-> (get-in context [:effects :db] coeffect-db)
+                                 (assoc :id-provider/next-id new-next-id))]
+               (assoc-in context [:effects :db] effect-db)))))
+
+
+;; -- Domino 2 - Event Handlers -----------------------------------------------
+
+(rf/reg-event-db
  :initialize
- [(rf/inject-cofx :now)]
- (fn [{:keys [now]} _]
-   {:db-changes {[:time] now
-                 [:time-color] "#f88"}}))
+ (fn [_ _]
+   {:timer/by-id {}}))
+
+(defn time-in-ms->display-value [ms]
+  (-> (js/Date. ms)
+      .toISOString
+      (subs 11 19)))
 
 (rf/reg-event-fx
- :time-color-change
- (fn [{:keys [db]} [_ new-color-value]]
-   {:db-changes {[:time-color] new-color-value}}))
+  :timer/create
+  [(inject-new-ids 1) (rf/inject-cofx :time/now)]
+  (fn [{:keys [id-provider/new-ids time/now]} _]
+    (let [[timer-id] new-ids]
+      {:vrac.db/changes {[:timer/by-id timer-id] {:timer/id timer-id
+                                                  :timer/start-time now
+                                                  :timer/display-value (time-in-ms->display-value 0)
+                                                  :color "#888"}}})))
 
 (rf/reg-event-fx
-  :update-timer
-  [(rf/inject-cofx :now)]
-  (fn [{:keys [db now]} _]
-    {:db-changes {[:time] now}}))
+  :timer/delete
+  (fn [{:keys [db]} [_ timer-id]]
+    (let [timers (get db :timer/by-id)]
+      {:vrac.db/changes {[:timer/by-id] (dissoc timers timer-id)}})))
+
+(rf/reg-event-fx
+ :timer/change-color
+ (fn [{:keys [db]} [_ timer-id new-color]]
+   {:vrac.db/changes {[:timer/by-id timer-id :color] new-color}}))
+
+(rf/reg-event-fx
+ :timer/update-current-time
+ [(rf/inject-cofx :time/now)]
+ (fn [{:keys [db time/now]} [_ timer-id]]
+   (let [start-time (get-in db [:timer/by-id timer-id :timer/start-time])
+         display-value (time-in-ms->display-value (- now start-time))]
+     {:vrac.db/changes {[:timer/by-id timer-id :timer/display-value] display-value}})))
 
 
 ;; -- Domino 4 - Query  -------------------------------------------------------
 
 (rf/reg-sub
- :time
+ :debug/db
  (fn [db _]
-   (:time db)))
+   db))
 
 (rf/reg-sub
- :time-color
+ :timer/all-ids
  (fn [db _]
-   (:time-color db)))
+   (-> db :timer/by-id keys)))
+
+(rf/reg-sub
+ :timer/by-id
+ (fn [db [_ timer-id]]
+   (get-in db [:timer/by-id timer-id])))
 
 
 ;; -- Domino 5 - View Functions ----------------------------------------------
 
-(defn clock []
-  [:div.example-clock
-   {:style {:color @(rf/subscribe [:time-color])}}
-   (-> @(rf/subscribe [:time])
-       .toTimeString
-       (str/split " ")
-       first)])
+(defn timer-comp [timer-id]
+  (let [interval-handle (atom nil)]
+    (r/create-class
+      {:component-did-mount
+       (fn [this]
+         (->> (js/setInterval #(rf/dispatch [:timer/update-current-time timer-id]) 1000)
+              (reset! interval-handle)))
 
-(defn color-input []
-  [:div.color-input
-   "Time color: "
-   [:input {:type "text"
-            :value @(rf/subscribe [:time-color])
-            :on-change #(rf/dispatch [:time-color-change (-> % .-target .-value)])}]])  ;; <---
+       :component-will-unmount
+       (fn [this]
+         (js/clearInterval @interval-handle))
+
+       :reagent-render
+       (fn [timer-id]
+         (let [timer @(rf/subscribe [:timer/by-id timer-id])]
+           [:<>
+            [:div.example-clock
+             {:style {:color (:color timer)}}
+             (:timer/display-value timer)]
+            [:div.color-input
+             [:input {:type "text"
+                      :value (:color timer)
+                      :on-change #(rf/dispatch [:timer/change-color timer-id (-> % .-target .-value)])}]]
+            [:button {:on-click #(rf/dispatch [:timer/delete timer-id])} "Delete timer"]]))})))
+
+
+(defn timer-list-comp []
+  (let [timer-ids @(rf/subscribe [:timer/all-ids])]
+    [:ul
+     (for [timer-id timer-ids]
+       ^{:key timer-id} [:li [timer-comp timer-id]])]))
+
+(defn debug-comp []
+  [:div (str @(rf/subscribe [:debug/db]))])
 
 (defn ui []
   [:div
-   [:h1 "Hello world, it is now"]
-   [clock]
-   [color-input]])
+   [:h1 "Hello timers"]
+   [:button {:on-click #(rf/dispatch [:timer/create])} "Create timer"]
+   [timer-list-comp]
+   [debug-comp]])
 
 ;; -- Entry Point -------------------------------------------------------------
 
@@ -87,5 +158,5 @@
 
 (defn run []
   (rf/dispatch-sync [:initialize])
-  (js/setInterval #(rf/dispatch [:update-timer]) 1000)
+  (rf/dispatch-sync [:timer/create])
   (render))

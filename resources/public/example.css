@@ -20,3 +20,7 @@ div, h1, input {
     font-size: 24px;
     line-height: 1.5em;
 }
+
+ul > li {
+    list-style-type: none;
+}
