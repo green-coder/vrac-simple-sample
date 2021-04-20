@@ -3,15 +3,18 @@
             [reagent.core :as r]
             [reagent.dom :as dom]
             [re-frame.core :as rf]
-            [re-frame.db :as rf-db]))
+            [re-frame.db :as rf-db]
+            [vrac.db :refer [Id]]))
 
 ;; -- Setup - change helpers --------------------------------------------------
 
 (def last-entity-id (atom -1))
 
-(defn make-entity [entity]
-  (let [id (swap! last-entity-id inc)]
-    (assoc entity :vrac.db/id id)))
+(defn ensure-id [entity]
+  (if (instance? Id (:vrac.db/id entity))
+    entity
+    (let [id (swap! last-entity-id inc)]
+      (assoc entity :vrac.db/id (Id. id)))))
 
 (defn change-create [entity]
   [:vrac.db.change/create entity])
@@ -22,15 +25,13 @@
 (defn change-delete [path]
   [:vrac.db.change/delete path])
 
-;; Fix me: This does not work for indexes. Create an Id record instead.
-(def relations-toward-entity
-  #{})
-
 ;; "relation" is a (possibly namespaced) keyword
 (defn follow-relation [db path relation]
-  (if (contains? relations-toward-entity relation)
-    (get-in db (conj path relation))
-    (conj path relation)))
+  (loop [path (conj path relation)]
+    (let [val (get-in db path)]
+      (if (instance? Id val)
+        (recur [:vrac.db.entity/by-id val])
+        path))))
 
 
 ;; -- Setup - coeffects -------------------------------------------------------
@@ -99,9 +100,9 @@
   :timer/create
   [(rf/inject-cofx :time/now)]
   (fn [{:keys [time/now]} _]
-    {:vrac.db/changes [(change-create (make-entity {:timer/start-time    now
-                                                    :timer/display-value (time-in-ms->display-value 0)
-                                                    :color               "#888"}))]}))
+    {:vrac.db/changes [(change-create (ensure-id {:timer/start-time    now
+                                                  :timer/display-value (time-in-ms->display-value 0)
+                                                  :color               "#888"}))]}))
 
 (rf/reg-event-fx
   :timer/delete
@@ -154,12 +155,12 @@
   (let [interval-handle (atom nil)]
     (r/create-class
       {:component-did-mount
-       (fn [this]
+       (fn [_]
          (->> (js/setInterval #(rf/dispatch [:timer/update-current-time timer-path]) 1000)
               (reset! interval-handle)))
 
        :component-will-unmount
-       (fn [this]
+       (fn [_]
          (js/clearInterval @interval-handle))
 
        :reagent-render
@@ -182,7 +183,7 @@
   (let [timer-paths @(rf/subscribe [:vrac.db.entity/all-entity-paths])]
     [:ul
      (for [timer-path timer-paths]
-       ^{:key (last timer-path)} [:li [timer-comp timer-path]])]))
+       ^{:key (str timer-path)} [:li [timer-comp timer-path]])]))
 
 (defn debug-comp []
   [:pre (with-out-str (cljs.pprint/pprint @(rf/subscribe [:debug/db])))])
