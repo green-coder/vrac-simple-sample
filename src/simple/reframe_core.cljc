@@ -25,9 +25,12 @@
 (defn change-delete [path]
   [:vrac.db.change/delete path])
 
-;; "relation" is a (possibly namespaced) keyword
+;; "relation" can be anything that goes as the key in `(get obj key)`.
+;; TODO: make it a n-arity function
 (defn follow-relation [db path relation]
-  (loop [path (conj path relation)]
+  (loop [path (if (nil? path)
+                [:vrac.db.entity/by-id relation]
+                (conj path relation))]
     (let [val (get-in db path)]
       (if (instance? Id val)
         (recur [:vrac.db.entity/by-id val])
@@ -67,7 +70,7 @@
 
 ;; -- Setup - interceptors ----------------------------------------------------
 
-;; Fix me: use tmp ids inside event handlers to make them idempotent.
+;; TODO: use tmp ids inside event handlers to make them idempotent.
 #_(defn inject-new-ids [nb-ids]
     (rf/->interceptor
       :id :id-provider/new-ids
@@ -89,7 +92,7 @@
  :initialize
  (fn [_ _]
    {;; Vrac is oblivious to "entity types", it stores all entities homogeneously.
-    :vrac.db.entity/by-id {}}))
+    :vrac.db.entity/by-id {(Id. :timer-list) {:timer-list/timers []}}}))
 
 (defn time-in-ms->display-value [ms]
   (-> (js/Date. ms)
@@ -99,15 +102,27 @@
 (rf/reg-event-fx
   :timer/create
   [(rf/inject-cofx :time/now)]
-  (fn [{:keys [time/now]} _]
-    {:vrac.db/changes [(change-create (ensure-id {:timer/start-time    now
-                                                  :timer/display-value (time-in-ms->display-value 0)
-                                                  :color               "#888"}))]}))
+  (fn [{:keys [db time/now]} _]
+    (let [timer (ensure-id {:timer/start-time    now
+                            :timer/display-value (time-in-ms->display-value 0)
+                            :color               "#888"})
+          timer-list-path (follow-relation db nil (Id. :timer-list))
+          timers-path (follow-relation db timer-list-path :timer-list/timers)
+          timers (get-in db timers-path) ;; TODO: create a from-path function instead
+          updated-timers (conj timers (:vrac.db/id timer))]
+      {:vrac.db/changes [(change-create timer)
+                         (change-update timers-path updated-timers)]})))
 
 (rf/reg-event-fx
   :timer/delete
-  (fn [_ [_ timer-path]]
-    {:vrac.db/changes [(change-delete timer-path)]}))
+  (fn [{:keys [db]} [_ timer-path]]
+    (let [timer (get-in db timer-path)
+          timer-list-path (follow-relation db nil (Id. :timer-list))
+          timers-path (follow-relation db timer-list-path :timer-list/timers)
+          timers (get-in db timers-path) ;; TODO: create a from-path function instead
+          updated-timers (into [] (remove #{(:vrac.db/id timer)}) timers)]
+      {:vrac.db/changes [(change-delete timer-path)
+                         (change-update timers-path updated-timers)]})))
 
 (rf/reg-event-fx
  :timer/change-color
@@ -131,12 +146,6 @@
  :debug/db
  (fn [db _]
    db))
-
-(rf/reg-sub
- :vrac.db.entity/all-entity-paths
- (fn [db _]
-   (mapv (fn [id] [:vrac.db.entity/by-id id])
-         (-> db :vrac.db.entity/by-id keys))))
 
 (rf/reg-sub
   :vrac.db/from-path
@@ -178,12 +187,16 @@
             [:button {:on-click #(rf/dispatch [:timer/delete timer-path])} "Delete timer"]]))})))
 
 
+(defn timer-list-item-comp [timers-path index]
+  (let [timer-path @(rf/subscribe [:vrac.db/follow-relation timers-path index])]
+    [:li [timer-comp timer-path]]))
+
 (defn timer-list-comp []
-  ;; Fix me: all the entities are not timers, we need a timer list.
-  (let [timer-paths @(rf/subscribe [:vrac.db.entity/all-entity-paths])]
-    [:ul
-     (for [timer-path timer-paths]
-       ^{:key (str timer-path)} [:li [timer-comp timer-path]])]))
+  (let [timer-list-path @(rf/subscribe [:vrac.db/follow-relation nil (Id. :timer-list)])
+        timers-path @(rf/subscribe [:vrac.db/follow-relation timer-list-path :timer-list/timers])
+        timers @(rf/subscribe [:vrac.db/from-path timers-path])]
+    [:ul (for [index (range (count timers))]
+           ^{:key index} [timer-list-item-comp timers-path index])]))
 
 (defn debug-comp []
   [:pre (with-out-str (cljs.pprint/pprint @(rf/subscribe [:debug/db])))])
