@@ -202,8 +202,9 @@
 (defn timer-list-comp []
   (let [timers-path @(rf/subscribe [:vrac.db/follow-relations nil [(Id. :timer-list) :timer-list/timers]])
         timers @(rf/subscribe [:vrac.db/from-path timers-path])]
-    [:ul (for [index (range (count timers))]
-           ^{:key index} [timer-list-item-comp timers-path index])]))
+    [:ul (for [index (range (count timers))
+               :let [timer-id (-> timers (nth index) :id)]]
+           ^{:key timer-id} [timer-list-item-comp timers-path index])]))
 
 (defn debug-comp []
   [:pre (with-out-str (cljs.pprint/pprint @(rf/subscribe [:debug/db])))])
