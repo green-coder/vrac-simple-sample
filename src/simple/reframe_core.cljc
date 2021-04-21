@@ -3,7 +3,8 @@
             [reagent.dom :as dom]
             [re-frame.core :as rf]
             [vrac.db :refer [Id]]
-            [vrac.reframe :refer [with-id ensure-id
+            [vrac.reframe :refer [pp-str
+                                  with-id ensure-id
                                   follow-relation follow-relations from-path
                                   change-create change-update change-delete]]))
 
@@ -36,6 +37,8 @@
                      :timer/display-value (time-in-ms->display-value 0)
                      :color               "#888"}
                     ensure-id)
+          ;; TODO: won't work when multiple timer-list can exist.
+          ;; TODO: Introduce :timer/timer-lists and computed data.
           timers-path (follow-relations db nil [(Id. :timer-list) :timer-list/timers])
           timers (from-path db timers-path)
           updated-timers (conj timers (:vrac.db/id timer))]
@@ -109,7 +112,7 @@
            ^{:key timer-id} [timer-list-item-comp timers-path index])]))
 
 (defn debug-comp []
-  [:pre (with-out-str (cljs.pprint/pprint @(rf/subscribe [:debug/db])))])
+  [:pre (pp-str @(rf/subscribe [:debug/db]))])
 
 (defn ui []
   [:div

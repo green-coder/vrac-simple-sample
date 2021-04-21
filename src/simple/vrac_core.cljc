@@ -3,97 +3,87 @@
 
 ;; -- Domino 2 - Event Handlers -----------------------------------------------
 
-;; Event handlers describe a change, but do not enact it.
-(v/reg-event-handler
-  '{;; An event handler registered on multiple events.
-    :event {[:initialize color] {name "Nathalie"} ;; default value provided, could also be (:default-name nil)
-            [:initialize color name] {}}
+'(v/reg-event-handler
+   [:initialize-app-db]
+   {:create (-> {:timer-list/timers []}
+                (with-id :timer-list))})
 
-    ;; The logic of the event, expresses the outputs from the inputs.
-    :logic (let [input-realtime    (:co-effect/realtime nil)
-                 output-time       (:time nil)
-                 output-time-color (:time-color nil)
-                 output-user-name  (:user-name nil)]
-             {output-time       (-> input-realtime
-                                    .toTimeString
-                                    (str/split " ")
-                                    first)
-              output-time-color color
-              output-user-name  name})
-    ;; alternative way to write it
-    #_#_:logic {(:time nil)       (-> (:co-effect/realtime nil)
-                                      .toTimeString
-                                      (str/split " ")
-                                      first)
-                (:time-color nil) color
-                (:user-name nil)  name}})
+(defn time-in-ms->display-value [ms]
+  (-> (js/Date. ms)
+      .toISOString
+      (subs 11 19)))
 
-;; Example of an event handler which add a value to an existing one.
-(v/reg-event-handler
-  '{:event {[:add-to acc val] {}
-            [:add-to-global val] {acc (:global-acc nil)}}
-    :logic {acc (+ acc val)}})
+'(v/reg-event-handler
+   [:timer/create]
+   (let [timer (-> {:timer/start-time    now
+                    :timer/display-value (time-in-ms->display-value 0)
+                    :color               "#888"}
+                   ensure-id)
+         timers (-> nil :timer-list :timer-list/timers)]
+     {:create timer
+      timers (conj timers timer)}))
 
+'(v/reg-event-handler
+   [:timer/delete timer]
+   (let [timers (-> nil :timer-list :timer-list/timers)
+         updated-timers (into [] (remove #{(:vrac.db/id timer)}) timers)]
+     {:delete [timer]
+      timers updated-timers}))
 
-;; usage:  (dispatch [:time-color-change 34562])
-(v/reg-event-handler
-  '{:event [:time-color-change new-color-value]
-    :logic {(:time-color nil) new-color-value}})
+'(v/reg-event-handler
+   [:timer/change-color color new-color]
+   {color new-color})
 
-;; usage:  (dispatch [:timer a-js-Date])
-(v/reg-event-handler
-  '{:event [:timer new-time]
-    :logic {(:time nil) new-time}})
-
-;; -- Domino 4 - Query  -------------------------------------------------------
-
-;; Will be replaced by Pathom resolvers
-
-;;(rf/reg-sub
-;; :time
-;; (fn [db _]     ;; db is current app state. 2nd unused param is query vector
-;;   (:time db))) ;; return a query computation over the application state
-;;
-;;(rf/reg-sub
-;; :time-color
-;; (fn [db _]
-;;   (:time-color db)))
-
+'(v/reg-event-handler
+   [:timer/update-current-time timer]
+   {(:timer/display-value timer) (time-in-ms->display-value (- (:time/now nil)
+                                                               (:timer/start-time timer)))})
 
 ;; -- Domino 5 - View Functions ----------------------------------------------
 
-'(defc clock []
-   [:div.example-clock
-    {:style {:color (:time-color nil)}}
-    (:time nil)])
+'(defc timer-comp [timer]
+   (let [interval-handle (state {:on-init (fn []
+                                            ;; TODO: how to do with timer-path?
+                                            (js/setInterval #(v/dispatch [:timer/update-current-time timer-path]) 1000))
+                                 :on-delete (fn [val]
+                                              (js/clearInterval val))})]
+     [:<>
+      [:div.example-clock
+       {:style {:color (:color timer)}}
+       (:timer/display-value timer)]
+      [:div.color-input
+       [:input {:type "text"
+                :value (:color timer)
+                :on-change [:timer/change-color color (-> %evt .-target .-value)]}]]
+      [:button {:on-click [:timer/delete timer]} "Delete timer"]]))
 
-'(defc color-input []
-   [:div.color-input
-    "Time color: "
-    [:input {:type "text"
-             :value (:time-color nil)
-             :on-change [:time-color-change (-> %evt .-target .-value)]}]]) ;; <--- %evt is a reserved word, related to the closest :on-xxx ancestor.
+'(defc timer-list-comp []
+   (let [timers (:timer-list/timers (:timer-list nil))]
+     [:ul (for [timer timers]
+            [:li [timer-comp timer]])]))
+
+'(defc debug-comp []
+   [:pre (pp-str (:debug/db nil))])
 
 '(defc ui []
    [:div
-    [:h1 "Hello " (:user-name nil) ", it is now"]
-    [clock]
-    [color-input]])
+    [:h1 "Hello timers"]
+    [:button {:on-click [:timer/create]} "Create timer"]
+    [timer-list-comp]
+    [debug-comp]])
 
 
-;; -- Domino 1 - Event Dispatch -----------------------------------------------
+;; -- Entry Point -------------------------------------------------------------
 
-(defn dispatch-timer-event []
-  (let [now (-> (js/Date.)
-                .toTimeString
-                (str/split " ")
-                first)]
-    (v/dispatch [:timer now])))
+(defn render []
+  (dom/render [ui] (js/document.getElementById "app")))
 
-;; Call the dispatching function every second.
-(defn ^:export init []
-  ;; Setup a timer
-  (js/setInterval dispatch-timer-event 1000)
+#_(defn ^:dev/after-load after-load []
+    (v/after-reload!)
+    (render))
 
-  ;; Initialize the DB.
-  (v/dispatch [:initialize "#f88"]))
+(defn run []
+  (v/dispatch-sync [:initialize-vrac-db])
+  (v/dispatch-sync [:initialize-app-db])
+  (v/dispatch-sync [:timer/create])
+  (render))
