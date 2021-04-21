@@ -3,7 +3,7 @@
             [reagent.dom :as dom]
             [re-frame.core :as rf]
             [vrac.db :refer [Id]]
-            [vrac.reframe :refer [ensure-id
+            [vrac.reframe :refer [with-id ensure-id
                                   follow-relation follow-relations from-path
                                   change-create change-update change-delete]]))
 
@@ -17,11 +17,11 @@
 
 ;; -- Domino 2 - Event Handlers -----------------------------------------------
 
-(rf/reg-event-db
- :initialize
+(rf/reg-event-fx
+ :initialize-app-db
  (fn [_ _]
-   {;; Vrac is oblivious to "entity types", it stores all entities homogeneously.
-    :vrac.db.entity/by-id {(Id. :timer-list) {:timer-list/timers []}}}))
+   {:vrac.db/changes [(change-create (-> {:timer-list/timers []}
+                                         (with-id :timer-list)))]}))
 
 (defn time-in-ms->display-value [ms]
   (-> (js/Date. ms)
@@ -32,9 +32,10 @@
   :timer/create
   [(rf/inject-cofx :time/now)]
   (fn [{:keys [db time/now]} _]
-    (let [timer (ensure-id {:timer/start-time    now
-                            :timer/display-value (time-in-ms->display-value 0)
-                            :color               "#888"})
+    (let [timer (-> {:timer/start-time    now
+                     :timer/display-value (time-in-ms->display-value 0)
+                     :color               "#888"}
+                    ensure-id)
           timers-path (follow-relations db nil [(Id. :timer-list) :timer-list/timers])
           timers (from-path db timers-path)
           updated-timers (conj timers (:vrac.db/id timer))]
@@ -127,6 +128,7 @@
   (render))
 
 (defn run []
-  (rf/dispatch-sync [:initialize])
+  (rf/dispatch-sync [:initialize-vrac-db])
+  (rf/dispatch-sync [:initialize-app-db])
   (rf/dispatch-sync [:timer/create])
   (render))

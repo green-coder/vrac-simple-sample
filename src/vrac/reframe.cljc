@@ -5,13 +5,16 @@
 
 ;; -- Setup - change helpers --------------------------------------------------
 
+(defn with-id [entity id]
+  (assoc entity :vrac.db/id (Id. id)))
+
 (def last-entity-id (atom -1))
 
 (defn ensure-id [entity]
   (if (instance? Id (:vrac.db/id entity))
     entity
     (let [id (swap! last-entity-id inc)]
-      (assoc entity :vrac.db/id (Id. id)))))
+      (with-id entity id))))
 
 (defn change-create [entity]
   [:vrac.db.change/create entity])
@@ -78,6 +81,14 @@
                      effect-db (-> (get-in context [:effects :db] coeffect-db)
                                    (assoc :id-provider/next-id new-next-id))]
                  (assoc-in context [:effects :db] effect-db)))))
+
+;; -- Domino 2 - Event Handlers -----------------------------------------------
+
+(rf/reg-event-db
+  :initialize-vrac-db
+  (fn [_ _]
+    {;; Vrac is oblivious to "entity types", it stores all entities homogeneously.
+     :vrac.db.entity/by-id {}}))
 
 ;; -- Domino 4 - Query  -------------------------------------------------------
 
