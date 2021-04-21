@@ -26,7 +26,6 @@
   [:vrac.db.change/delete path])
 
 ;; "relation" can be anything that goes as the key in `(get obj key)`.
-;; TODO: make it a n-arity function
 (defn follow-relation [db path relation]
   (loop [path (if (nil? path)
                 [:vrac.db.entity/by-id relation]
@@ -35,6 +34,12 @@
       (if (instance? Id val)
         (recur [:vrac.db.entity/by-id val])
         path))))
+
+(defn follow-relations [db path relations]
+  (reduce (partial follow-relation db) path relations))
+
+(defn from-path [db path]
+  (get-in db path))
 
 
 ;; -- Setup - coeffects -------------------------------------------------------
@@ -106,9 +111,8 @@
     (let [timer (ensure-id {:timer/start-time    now
                             :timer/display-value (time-in-ms->display-value 0)
                             :color               "#888"})
-          timer-list-path (follow-relation db nil (Id. :timer-list))
-          timers-path (follow-relation db timer-list-path :timer-list/timers)
-          timers (get-in db timers-path) ;; TODO: create a from-path function instead
+          timers-path (follow-relations db nil [(Id. :timer-list) :timer-list/timers])
+          timers (from-path db timers-path)
           updated-timers (conj timers (:vrac.db/id timer))]
       {:vrac.db/changes [(change-create timer)
                          (change-update timers-path updated-timers)]})))
@@ -116,10 +120,9 @@
 (rf/reg-event-fx
   :timer/delete
   (fn [{:keys [db]} [_ timer-path]]
-    (let [timer (get-in db timer-path)
-          timer-list-path (follow-relation db nil (Id. :timer-list))
-          timers-path (follow-relation db timer-list-path :timer-list/timers)
-          timers (get-in db timers-path) ;; TODO: create a from-path function instead
+    (let [timer (from-path db timer-path)
+          timers-path (follow-relations db nil [(Id. :timer-list) :timer-list/timers])
+          timers (from-path db timers-path)
           updated-timers (into [] (remove #{(:vrac.db/id timer)}) timers)]
       {:vrac.db/changes [(change-delete timer-path)
                          (change-update timers-path updated-timers)]})))
@@ -134,7 +137,7 @@
  [(rf/inject-cofx :time/now)]
  (fn [{:keys [db time/now]} [_ timer-path]]
    (let [start-time-path (follow-relation db timer-path :timer/start-time)
-         start-time (get-in db start-time-path)
+         start-time (from-path db start-time-path)
          display-value-path (follow-relation db timer-path :timer/display-value)
          display-value (time-in-ms->display-value (- now start-time))]
      {:vrac.db/changes [(change-update display-value-path display-value)]})))
@@ -150,12 +153,17 @@
 (rf/reg-sub
   :vrac.db/from-path
   (fn [db [_ path]]
-    (get-in db path)))
+    (from-path db path)))
 
 (rf/reg-sub
   :vrac.db/follow-relation
   (fn [db [_ path relation]]
     (follow-relation db path relation)))
+
+(rf/reg-sub
+  :vrac.db/follow-relations
+  (fn [db [_ path relations]]
+    (follow-relations db path relations)))
 
 
 ;; -- Domino 5 - View Functions ----------------------------------------------
@@ -192,8 +200,7 @@
     [:li [timer-comp timer-path]]))
 
 (defn timer-list-comp []
-  (let [timer-list-path @(rf/subscribe [:vrac.db/follow-relation nil (Id. :timer-list)])
-        timers-path @(rf/subscribe [:vrac.db/follow-relation timer-list-path :timer-list/timers])
+  (let [timers-path @(rf/subscribe [:vrac.db/follow-relations nil [(Id. :timer-list) :timer-list/timers]])
         timers @(rf/subscribe [:vrac.db/from-path timers-path])]
     [:ul (for [index (range (count timers))]
            ^{:key index} [timer-list-item-comp timers-path index])]))
