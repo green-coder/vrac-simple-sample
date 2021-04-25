@@ -3,10 +3,10 @@
             [reagent.dom :as dom]
             [re-frame.core :as rf]
             [vrac.db :refer [Id]]
-            [vrac.reframe :refer [pp-str
-                                  with-id ensure-id
+            [vrac.reframe :refer [with-id ensure-id
                                   follow-relation follow-relations from-path
-                                  change-create change-update change-delete]]))
+                                  change-create change-update change-delete]]
+            [simple.util :refer [pp-str]]))
 
 ;; -- Setup - coeffects -------------------------------------------------------
 
@@ -71,6 +71,14 @@
      {:vrac.db/changes [(change-update display-value-path display-value)]})))
 
 
+;; -- Domino 4 - Query  -------------------------------------------------------
+
+(rf/reg-sub
+  :debug/db
+  (fn [db _]
+    db))
+
+
 ;; -- Domino 5 - View Functions ----------------------------------------------
 
 (defn timer-comp [timer-path]
@@ -126,7 +134,7 @@
 (defn render []
   (dom/render [ui] (js/document.getElementById "app")))
 
-(defn ^:dev/after-load after-load []
+(defn ^:dev/after-load after-load-hook []
   (rf/clear-subscription-cache!)
   (render))
 

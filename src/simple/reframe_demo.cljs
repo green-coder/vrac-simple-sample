@@ -1,73 +1,135 @@
 (ns simple.reframe-demo
-  (:require [clojure.string :as str]
+  (:require [reagent.core :as r]
             [reagent.dom :as dom]
-            [re-frame.core :as rf]))
+            [re-frame.core :as rf]
+            [simple.util :refer [pp-str ensure-id]]))
 
-;; -- Domino 1 - Event Dispatch -----------------------------------------------
+;; -- Setup - coeffects -------------------------------------------------------
 
-(defn dispatch-timer-event []
-  (let [now (js/Date.)]
-    (rf/dispatch [:timer now])))
-
-(defonce do-timer (js/setInterval dispatch-timer-event 1000))
+(rf/reg-cofx
+  :time/now
+  (fn [coeffects]
+    (assoc coeffects :time/now (js/Date.))))
 
 
 ;; -- Domino 2 - Event Handlers -----------------------------------------------
 
 (rf/reg-event-db
- :initialize
+ :initialize-app-db
  (fn [_ _]
-   {:time (js/Date.)
-    :time-color "#f88"}))
+   ;; We use a normalized DB.
+   {:entity/by-id {:timer-list {:id :timer-list
+                                :timer-list/timers []}}}))
 
+(defn time-in-ms->display-value [ms]
+  (-> (js/Date. ms)
+      .toISOString
+      (subs 11 19)))
+
+(rf/reg-event-fx
+  :timer/create
+  [(rf/inject-cofx :time/now)]
+  (fn [{:keys [db time/now]} _]
+    (let [timer (-> {:timer/start-time    now
+                     :timer/display-value (time-in-ms->display-value 0)
+                     :color               "#888"}
+                    ensure-id)
+          timer-id (:id timer)]
+      ;; TODO: won't work when multiple timer-list can exist.
+      ;; TODO: Introduce :timer/timer-lists and computed data.
+      {:db (-> db
+               (update :entity/by-id assoc timer-id timer)
+               (update-in [:entity/by-id :timer-list :timer-list/timers] conj timer-id))})))
 
 (rf/reg-event-db
- :time-color-change
- (fn [db [_ new-color-value]]
-   (assoc db :time-color new-color-value)))
-
+  :timer/delete
+  (fn [db [_ timer-id]]
+    (-> db
+        (update :entity/by-id dissoc timer-id)
+        (update-in [:entity/by-id :timer-list :timer-list/timers]
+                   (fn [timers]
+                     (into [] (remove #{timer-id}) timers))))))
 
 (rf/reg-event-db
- :timer
- (fn [db [_ new-time]]
-   (assoc db :time new-time)))
+  :timer/change-color
+  (fn [db [_ timer-id new-color]]
+    (assoc-in db [:entity/by-id timer-id :color] new-color)))
+
+(rf/reg-event-fx
+  :timer/update-current-time
+  [(rf/inject-cofx :time/now)]
+  (fn [{:keys [db time/now]} [_ timer-id]]
+    {:db (update-in db [:entity/by-id timer-id]
+                    (fn [timer]
+                      (let [start-time (:timer/start-time timer)]
+                        (assoc timer
+                          :timer/display-value (time-in-ms->display-value (- now start-time))))))}))
 
 
 ;; -- Domino 4 - Query  -------------------------------------------------------
 
 (rf/reg-sub
- :time
- (fn [db _]
-   (:time db)))
+  :debug/db
+  (fn [db _]
+    db))
 
 (rf/reg-sub
- :time-color
+ :timers
  (fn [db _]
-   (:time-color db)))
+   (get-in db [:entity/by-id :timer-list :timer-list/timers])))
+
+(rf/reg-sub
+ :timer
+ (fn [db [_ timer-id]]
+   (get-in db [:entity/by-id timer-id])))
 
 
 ;; -- Domino 5 - View Functions ----------------------------------------------
 
-(defn clock []
-  [:div.example-clock
-   {:style {:color @(rf/subscribe [:time-color])}}
-   (-> @(rf/subscribe [:time])
-       .toTimeString
-       (str/split " ")
-       first)])
+(defn timer-comp [timer]
+  (let [interval-handle (atom nil)]
+    (r/create-class
+      {:component-did-mount
+       (fn [_]
+         (->> (js/setInterval #(rf/dispatch [:timer/update-current-time (:id timer)]) 1000)
+              (reset! interval-handle)))
 
-(defn color-input []
-  [:div.color-input
-   "Time color: "
-   [:input {:type "text"
-            :value @(rf/subscribe [:time-color])
-            :on-change #(rf/dispatch [:time-color-change (-> % .-target .-value)])}]])  ;; <---
+       :component-will-unmount
+       (fn [_]
+         (js/clearInterval @interval-handle))
+
+       :reagent-render
+       (fn [timer]
+         [:<>
+          [:div.example-clock
+           {:style {:color (:color timer)}}
+           (:timer/display-value timer)]
+          [:div.color-input
+           [:input {:type "text"
+                    :value (:color timer)
+                    :on-change #(rf/dispatch [:timer/change-color (:id timer) (-> % .-target .-value)])}]]
+          [:button {:on-click #(rf/dispatch [:timer/delete (:id timer)])} "Delete timer"]])})))
+
+
+(defn timer-list-item-comp [timer-id]
+  (let [timer @(rf/subscribe [:timer timer-id])]
+    [:li [timer-comp timer]]))
+
+(defn timer-list-comp []
+  (let [timers @(rf/subscribe [:timers])]
+    [:ul (for [index (range (count timers))
+               :let [timer-id (-> timers (nth index))]]
+           ^{:key timer-id} [timer-list-item-comp timer-id])]))
+
+(defn debug-comp []
+  [:pre (pp-str @(rf/subscribe [:debug/db]))])
 
 (defn ui []
   [:div
-   [:h1 "Hello world, it is now"]
-   [clock]
-   [color-input]])
+   [:h1 "Hello timers"]
+   [:button {:on-click #(rf/dispatch [:timer/create])} "Create timer"]
+   [timer-list-comp]
+   [debug-comp]])
 
 ;; -- Entry Point -------------------------------------------------------------
 
@@ -79,5 +141,6 @@
   (render))
 
 (defn run []
-  (rf/dispatch-sync [:initialize])
+  (rf/dispatch-sync [:initialize-app-db])
+  (rf/dispatch-sync [:timer/create])
   (render))

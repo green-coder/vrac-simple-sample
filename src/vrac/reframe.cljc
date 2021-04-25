@@ -1,15 +1,9 @@
 (ns vrac.reframe
-  (:require [cljs.pprint :as pp]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             [re-frame.db :as rf-db]
             [vrac.db :refer [Id]]))
 
 ;; -- Setup - change helpers --------------------------------------------------
-
-(defn pp-str
-  "Pretty print a data into a string."
-  [data]
-  (with-out-str (pp/pprint data)))
 
 (defn with-id [entity id]
   (assoc entity :vrac.db/id (Id. id)))
@@ -97,11 +91,6 @@
      :vrac.db.entity/by-id {}}))
 
 ;; -- Domino 4 - Query  -------------------------------------------------------
-
-(rf/reg-sub
-  :debug/db
-  (fn [db _]
-    db))
 
 (rf/reg-sub
   :vrac.db/from-path
