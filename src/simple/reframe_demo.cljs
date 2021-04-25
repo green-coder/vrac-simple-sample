@@ -86,12 +86,12 @@
 
 ;; -- Domino 5 - View Functions ----------------------------------------------
 
-(defn timer-comp [timer]
+(defn timer-comp [timer-id]
   (let [interval-handle (atom nil)]
     (r/create-class
       {:component-did-mount
        (fn [_]
-         (->> (js/setInterval #(rf/dispatch [:timer/update-current-time (:id timer)]) 1000)
+         (->> (js/setInterval #(rf/dispatch [:timer/update-current-time timer-id]) 1000)
               (reset! interval-handle)))
 
        :component-will-unmount
@@ -99,27 +99,24 @@
          (js/clearInterval @interval-handle))
 
        :reagent-render
-       (fn [timer]
-         [:<>
-          [:div.example-clock
-           {:style {:color (:color timer)}}
-           (:timer/display-value timer)]
-          [:div.color-input
-           [:input {:type "text"
-                    :value (:color timer)
-                    :on-change #(rf/dispatch [:timer/change-color (:id timer) (-> % .-target .-value)])}]]
-          [:button {:on-click #(rf/dispatch [:timer/delete (:id timer)])} "Delete timer"]])})))
+       (fn [timer-id]
+         (let [timer @(rf/subscribe [:timer timer-id])
+               color (:color timer)]
+           [:<>
+            [:div.example-clock
+             {:style {:color :color}}
+             (:timer/display-value timer)]
+            [:div.color-input
+             [:input {:type "text"
+                      :value color
+                      :on-change #(rf/dispatch [:timer/change-color timer-id (-> % .-target .-value)])}]]
+            [:button {:on-click #(rf/dispatch [:timer/delete timer-id])} "Delete timer"]]))})))
 
-
-(defn timer-list-item-comp [timer-id]
-  (let [timer @(rf/subscribe [:timer timer-id])]
-    [:li [timer-comp timer]]))
 
 (defn timer-list-comp []
   (let [timers @(rf/subscribe [:timers])]
-    [:ul (for [index (range (count timers))
-               :let [timer-id (-> timers (nth index))]]
-           ^{:key timer-id} [timer-list-item-comp timer-id])]))
+    [:ul (for [timer-id timers]
+           ^{:key timer-id} [:li [timer-comp timer-id]])]))
 
 (defn debug-comp []
   [:pre (pp-str @(rf/subscribe [:debug/db]))])
@@ -130,6 +127,7 @@
    [:button {:on-click #(rf/dispatch [:timer/create])} "Create timer"]
    [timer-list-comp]
    [debug-comp]])
+
 
 ;; -- Entry Point -------------------------------------------------------------
 

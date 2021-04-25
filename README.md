@@ -17,7 +17,7 @@ Inside `src/simple/vrac_demo.cljc`.
 The same app but implemented via Vrac components.
 It is a conceptual source code, it does not run yet.
 
-### Vrac compiled into Re-frame (hand crafted)
+### Vrac compiled into Re-frame (crafted by hand for now)
 
 Inside `src/simple/vrac_compiled_to_reframe_demo.cljs`
 

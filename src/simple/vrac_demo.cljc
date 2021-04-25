@@ -1,6 +1,13 @@
 (ns simple.vrac-demo
   (:require [vrac.core :as v :refer [defc]]))
 
+;; -- Setup - coeffects -------------------------------------------------------
+
+'(v/reg-cofx
+   :time/now
+   (js/Date.))
+
+
 ;; -- Domino 2 - Event Handlers -----------------------------------------------
 
 '(v/reg-event-handler
@@ -27,7 +34,7 @@
    [:timer/delete timer]
    (let [timers (-> nil :timer-list :timer-list/timers)
          updated-timers (into [] (remove #{(:vrac.db/id timer)}) timers)]
-     {:delete [timer]
+     {:delete timer
       timers updated-timers}))
 
 '(v/reg-event-handler
@@ -46,14 +53,15 @@
                                             ;; TODO: how to do with timer-path?
                                             (js/setInterval #(v/dispatch [:timer/update-current-time timer-path]) 1000))
                                  :on-delete (fn [val]
-                                              (js/clearInterval val))})]
+                                              (js/clearInterval val))})
+         color (:color timer)]
      [:<>
       [:div.example-clock
-       {:style {:color (:color timer)}}
+       {:style {:color color}}
        (:timer/display-value timer)]
       [:div.color-input
        [:input {:type "text"
-                :value (:color timer)
+                :value color
                 :on-change [:timer/change-color color (-> %evt .-target .-value)]}]]
       [:button {:on-click [:timer/delete timer]} "Delete timer"]]))
 
