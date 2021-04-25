@@ -1,4 +1,4 @@
-(ns simple.reframe-core
+(ns simple.vrac-compiled-to-reframe-demo
   (:require [reagent.core :as r]
             [reagent.dom :as dom]
             [re-frame.core :as rf]

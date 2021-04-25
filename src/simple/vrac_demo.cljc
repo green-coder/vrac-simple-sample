@@ -1,4 +1,4 @@
-(ns simple.vrac-core
+(ns simple.vrac-demo
   (:require [vrac.core :as v :refer [defc]]))
 
 ;; -- Domino 2 - Event Handlers -----------------------------------------------

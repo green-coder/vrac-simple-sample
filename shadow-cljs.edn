@@ -1,7 +1,8 @@
 {:deps true
 
- :dev-http {3000 "resources/public"}
+ :dev-http {3000 "public"}
 
- :builds {:client {:target     :browser
-                   :output-dir "resources/public/js"
-                   :modules    {:client {:init-fn simple.reframe-core/run}}}}}
+ :builds {:reference-demo {:target  :browser
+                           :modules {:reference-demo {:init-fn simple.reframe-demo/run}}}
+          :vrac-demo      {:target  :browser
+                           :modules {:vrac-demo {:init-fn simple.vrac-compiled-to-reframe-demo/run}}}}}
