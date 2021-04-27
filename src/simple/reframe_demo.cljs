@@ -104,7 +104,7 @@
                color (:color timer)]
            [:<>
             [:div.example-clock
-             {:style {:color :color}}
+             {:style {:color color}}
              (:timer/display-value timer)]
             [:div.color-input
              [:input {:type "text"
