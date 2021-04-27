@@ -19,27 +19,27 @@
 (defn change-create [entity]
   [:vrac.db.change/create entity])
 
-(defn change-update [path value]
-  [:vrac.db.change/update path value])
+(defn change-update [ref value]
+  [:vrac.db.change/update ref value])
 
-(defn change-delete [path]
-  [:vrac.db.change/delete path])
+(defn change-delete [ref]
+  [:vrac.db.change/delete ref])
 
 ;; "relation" can be anything that goes as the key in `(get obj key)`.
-(defn follow-relation [db path relation]
-  (loop [path (if (nil? path)
-                [:vrac.db.entity/by-id relation]
-                (conj path relation))]
-    (let [val (get-in db path)]
+(defn follow-relation [db ref relation]
+  (loop [ref (if (nil? ref)
+               [:vrac.db.entity/by-id relation]
+               (conj ref relation))]
+    (let [val (get-in db ref)]
       (if (instance? Id val)
         (recur [:vrac.db.entity/by-id val])
-        path))))
+        ref))))
 
-(defn follow-relations [db path relations]
-  (reduce (partial follow-relation db) path relations))
+(defn follow-relations [db ref relations]
+  (reduce (partial follow-relation db) ref relations))
 
-(defn from-path [db path]
-  (get-in db path))
+(defn from-ref [db ref]
+  (get-in db ref))
 
 
 ;; -- Setup - effects ---------------------------------------------------------
@@ -50,8 +50,8 @@
     (let [create-fn (fn [db [_ entity]]
                       (update db :vrac.db.entity/by-id
                               assoc (:vrac.db/id entity) entity))
-          update-fn (fn [db [_ path value]]
-                      (assoc-in db path value))
+          update-fn (fn [db [_ ref value]]
+                      (assoc-in db ref value))
           delete-fn (fn [db [_ [_ id]]]
                       (update db :vrac.db.entity/by-id
                               dissoc id))
@@ -93,16 +93,16 @@
 ;; -- Domino 4 - Query  -------------------------------------------------------
 
 (rf/reg-sub
-  :vrac.db/from-path
-  (fn [db [_ path]]
-    (from-path db path)))
+  :vrac.db/from-ref
+  (fn [db [_ ref]]
+    (from-ref db ref)))
 
 (rf/reg-sub
   :vrac.db/follow-relation
-  (fn [db [_ path relation]]
-    (follow-relation db path relation)))
+  (fn [db [_ ref relation]]
+    (follow-relation db ref relation)))
 
 (rf/reg-sub
   :vrac.db/follow-relations
-  (fn [db [_ path relations]]
-    (follow-relations db path relations)))
+  (fn [db [_ ref relations]]
+    (follow-relations db ref relations)))
