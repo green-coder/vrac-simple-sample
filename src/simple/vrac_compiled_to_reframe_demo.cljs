@@ -5,7 +5,7 @@
             [vrac.db :refer [Id]]
             [vrac.reframe :refer [with-id ensure-id
                                   follow-relation follow-relations from-ref
-                                  change-create change-update change-delete]]
+                                  change-create change-update change-remove change-delete]]
             [simple.util :refer [pp-str]]))
 
 ;; -- Setup - coeffects -------------------------------------------------------
@@ -47,13 +47,10 @@
 
 (rf/reg-event-fx
   :timer/delete
-  (fn [{:keys [db]} [_ timer-ref]]
-    (let [timer (from-ref db timer-ref)
-          timers-ref (follow-relations nil [(Id. :timer-list) :timer-list/timers])
-          timers (from-ref db timers-ref)
-          updated-timers (into [] (remove #{(:vrac.db/id timer)}) timers)]
-      {:vrac.db/changes [(change-delete timer-ref)
-                         (change-update timers-ref updated-timers)]})))
+  (fn [_ [_ timer-ref]]
+    {:vrac.db/changes [(change-delete timer-ref)
+                       (change-remove timer-ref)]}))
+
 
 (rf/reg-event-fx
  :timer/change-color

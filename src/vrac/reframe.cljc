@@ -22,6 +22,9 @@
 (defn change-update [ref value]
   [:vrac.db.change/update ref value])
 
+(defn change-remove [ref]
+  [:vrac.db.change/remove ref])
+
 (defn change-delete [ref]
   [:vrac.db.change/delete ref])
 
@@ -98,6 +101,11 @@
           update-fn (fn [entity-by-id [_ ref value]]
                       (let [cref (canonical-ref* entity-by-id ref)]
                         (assoc-in entity-by-id cref value)))
+          remove-fn (fn [entity-by-id [_ ref]]
+                      ;; Don't "canonical" last element of the ref
+                      (let [parent-cref (canonical-ref* entity-by-id (butlast ref))
+                            cref (follow-relation parent-cref (last ref))]
+                        (dissoc-in entity-by-id cref)))
           delete-fn (fn [entity-by-id [_ ref]]
                       (let [cref (canonical-ref* entity-by-id ref)]
                         (dissoc-in entity-by-id cref)))]
@@ -107,6 +115,7 @@
                (reduce (fn [entity-by-id change]
                          (let [f ({:vrac.db.change/create create-fn
                                    :vrac.db.change/update update-fn
+                                   :vrac.db.change/remove remove-fn
                                    :vrac.db.change/delete delete-fn} (first change))]
                            (f entity-by-id change)))
                        entity-by-id

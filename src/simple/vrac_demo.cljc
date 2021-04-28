@@ -31,11 +31,11 @@
       timers (conj timers timer)}))
 
 '(v/reg-event-handler
-   [:timer/delete timer]
-   (let [timers (-> nil :timer-list :timer-list/timers)
-         updated-timers (into [] (remove #{(:vrac.db/id timer)}) timers)]
-     {:delete timer
-      timers updated-timers}))
+   [:timer/delete timer
+     {;; Remove the entity from the store
+      :delete timer
+      ;; Remove the link to the entity, assuming that the reference contains that link.
+      :remove timer}])
 
 '(v/reg-event-handler
    [:timer/change-color color new-color]
