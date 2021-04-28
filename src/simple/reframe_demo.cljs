@@ -79,9 +79,14 @@
    (get-in db [:entity/by-id :timer-list :timer-list/timers])))
 
 (rf/reg-sub
- :timer
+ :timer/color
  (fn [db [_ timer-id]]
-   (get-in db [:entity/by-id timer-id])))
+   (get-in db [:entity/by-id timer-id :color])))
+
+(rf/reg-sub
+ :timer/display-value
+ (fn [db [_ timer-id]]
+   (get-in db [:entity/by-id timer-id :timer/display-value])))
 
 
 ;; -- Domino 5 - View Functions ----------------------------------------------
@@ -100,15 +105,15 @@
 
        :reagent-render
        (fn [timer-id]
-         (let [timer @(rf/subscribe [:timer timer-id])
-               color (:color timer)]
+         (let [timer-color @(rf/subscribe [:timer/color timer-id])
+               timer-display-value @(rf/subscribe [:timer/display-value timer-id])]
            [:<>
             [:div.example-clock
-             {:style {:color color}}
-             (:timer/display-value timer)]
+             {:style {:color timer-color}}
+             timer-display-value]
             [:div.color-input
              [:input {:type "text"
-                      :value color
+                      :value timer-color
                       :on-change #(rf/dispatch [:timer/change-color timer-id (-> % .-target .-value)])}]]
             [:button {:on-click #(rf/dispatch [:timer/delete timer-id])} "Delete timer"]]))})))
 
