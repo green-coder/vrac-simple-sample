@@ -39,7 +39,7 @@
                     ensure-id)
           ;; TODO: won't work when multiple timer-list can exist.
           ;; TODO: Introduce :timer/timer-lists and computed data.
-          timers-ref (follow-relations db nil [(Id. :timer-list) :timer-list/timers])
+          timers-ref (follow-relations nil [(Id. :timer-list) :timer-list/timers])
           timers (from-ref db timers-ref)
           updated-timers (conj timers (:vrac.db/id timer))]
       {:vrac.db/changes [(change-create timer)
@@ -49,7 +49,7 @@
   :timer/delete
   (fn [{:keys [db]} [_ timer-ref]]
     (let [timer (from-ref db timer-ref)
-          timers-ref (follow-relations db nil [(Id. :timer-list) :timer-list/timers])
+          timers-ref (follow-relations nil [(Id. :timer-list) :timer-list/timers])
           timers (from-ref db timers-ref)
           updated-timers (into [] (remove #{(:vrac.db/id timer)}) timers)]
       {:vrac.db/changes [(change-delete timer-ref)
@@ -64,9 +64,9 @@
  :timer/update-current-time
  [(rf/inject-cofx :time/now)]
  (fn [{:keys [db time/now]} [_ timer-ref]]
-   (let [start-time-ref (follow-relation db timer-ref :timer/start-time)
+   (let [start-time-ref (follow-relation timer-ref :timer/start-time)
          start-time (from-ref db start-time-ref)
-         display-value-ref (follow-relation db timer-ref :timer/display-value)
+         display-value-ref (follow-relation timer-ref :timer/display-value)
          display-value (time-in-ms->display-value (- now start-time))]
      {:vrac.db/changes [(change-update display-value-ref display-value)]})))
 
@@ -86,8 +86,9 @@
     (r/create-class
       {:component-did-mount
        (fn [_]
-         (->> (js/setInterval #(rf/dispatch [:timer/update-current-time timer-ref]) 1000)
-              (reset! interval-handle)))
+         (let [timer-cref @(rf/subscribe [:vrac.db/canonical-ref timer-ref])]
+           (->> (js/setInterval #(rf/dispatch [:timer/update-current-time timer-cref]) 1000)
+                (reset! interval-handle))))
 
        :component-will-unmount
        (fn [_]
@@ -95,29 +96,27 @@
 
        :reagent-render
        (fn [timer-ref]
-         (let [timer @(rf/subscribe [:vrac.db/from-ref timer-ref])
-               color-ref @(rf/subscribe [:vrac.db/follow-relation timer-ref :color])]
+         (let [color-ref (follow-relation timer-ref :color)
+               color @(rf/subscribe [:vrac.db/from-ref color-ref])
+               display-value-ref (follow-relation timer-ref :timer/display-value)
+               display-value @(rf/subscribe [:vrac.db/from-ref display-value-ref])]
            [:<>
             [:div.example-clock
-             {:style {:color (:color timer)}}
-             (:timer/display-value timer)]
+             {:style {:color color}}
+             display-value]
             [:div.color-input
              [:input {:type "text"
-                      :value (:color timer)
+                      :value color
                       :on-change #(rf/dispatch [:timer/change-color color-ref (-> % .-target .-value)])}]]
             [:button {:on-click #(rf/dispatch [:timer/delete timer-ref])} "Delete timer"]]))})))
 
-
-(defn timer-list-item-comp [timers-ref index]
-  (let [timer-ref @(rf/subscribe [:vrac.db/follow-relation timers-ref index])]
-    [:li [timer-comp timer-ref]]))
-
 (defn timer-list-comp []
-  (let [timers-ref @(rf/subscribe [:vrac.db/follow-relations nil [(Id. :timer-list) :timer-list/timers]])
+  (let [timers-ref (follow-relations nil [(Id. :timer-list) :timer-list/timers])
         timers @(rf/subscribe [:vrac.db/from-ref timers-ref])]
-    [:ul (for [index (range (count timers))
-               :let [timer-id (-> timers (nth index) :id)]]
-           ^{:key timer-id} [timer-list-item-comp timers-ref index])]))
+    [:ul (for [index (range (count timers))]
+           (let [timer-id (-> timers (nth index) :id)
+                 timer-ref (follow-relation timers-ref index)]
+             ^{:key timer-id} [:li [timer-comp timer-ref]]))]))
 
 (defn debug-comp []
   [:pre (pp-str @(rf/subscribe [:debug/db]))])

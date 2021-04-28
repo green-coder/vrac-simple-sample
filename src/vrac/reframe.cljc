@@ -26,43 +26,91 @@
   [:vrac.db.change/delete ref])
 
 ;; "relation" can be anything that goes as the key in `(get obj key)`.
-(defn follow-relation [db ref relation]
-  (loop [ref (if (nil? ref)
-               [:vrac.db.entity/by-id relation]
-               (conj ref relation))]
-    (let [val (get-in db ref)]
-      (if (instance? Id val)
-        (recur [:vrac.db.entity/by-id val])
-        ref))))
+(defn follow-relation [ref relation]
+  (conj (or ref []) relation))
 
-(defn follow-relations [db ref relations]
-  (reduce (partial follow-relation db) ref relations))
+(defn follow-relations [ref relations]
+  (into (or ref []) relations))
 
 (defn from-ref [db ref]
-  (get-in db ref))
+  (let [entity-by-id (:vrac.db.entity/by-id db)]
+    (loop [s (seq ref)
+           val entity-by-id]
+      (if s
+        (let [val (get val (first s))]
+          (recur (next s)
+                 (cond-> val
+                   (instance? Id val) entity-by-id)))
+        val))))
+
+(defn- canonical-ref* [entity-by-id ref]
+  (loop [path []
+         s (seq ref)
+         val entity-by-id]
+    (if s
+      (let [relation (first s)
+            val (get val relation)]
+        (if (instance? Id val)
+          (recur [val]
+                 (next s)
+                 (entity-by-id val))
+          (recur (conj path relation)
+                 (next s)
+                 val)))
+      path)))
+
+(defn canonical-ref [db ref]
+  (canonical-ref* (:vrac.db.entity/by-id db) ref))
 
 
 ;; -- Setup - effects ---------------------------------------------------------
 
+(defn- safe-update-in
+  "Same as update-in, but also supports empty paths."
+  [m path f & args]
+  (if (seq path)
+    (apply update-in m path f args)
+    (apply f m args)))
+
+
+;; Works for vectors and maps.
+(defn- dissoc-in [data path]
+  (safe-update-in data (butlast path)
+                  (fn [container]
+                    (assert (or (vector? container)
+                                (map? container)) "dissoc-in only works on vectors and maps.")
+                    (let [k (last path)]
+                      (cond
+                        (vector? container)
+                        (into (subvec container 0 k)
+                              (subvec container (inc k)))
+
+                        :else
+                        (dissoc container k))))))
+
+;; TODO: (Problem) the order of the creations, updates and deletes inside a set of changes matters.
+;; TODO: (Solution) change all references to canonical before processing any of the changes.
 (rf/reg-fx
   :vrac.db/changes
   (fn [changes]
-    (let [create-fn (fn [db [_ entity]]
-                      (update db :vrac.db.entity/by-id
-                              assoc (:vrac.db/id entity) entity))
-          update-fn (fn [db [_ ref value]]
-                      (assoc-in db ref value))
-          delete-fn (fn [db [_ [_ id]]]
-                      (update db :vrac.db.entity/by-id
-                              dissoc id))
-          {creates :vrac.db.change/create
-           updates :vrac.db.change/update
-           deletes :vrac.db.change/delete} (group-by first changes)]
-      (swap! rf-db/app-db (fn [db]
-                            (as-> db xxx
-                                  (reduce create-fn xxx creates)
-                                  (reduce update-fn xxx updates)
-                                  (reduce delete-fn xxx deletes)))))))
+    (let [create-fn (fn [entity-by-id [_ entity]]
+                      (assoc entity-by-id (:vrac.db/id entity) entity))
+          update-fn (fn [entity-by-id [_ ref value]]
+                      (let [cref (canonical-ref* entity-by-id ref)]
+                        (assoc-in entity-by-id cref value)))
+          delete-fn (fn [entity-by-id [_ ref]]
+                      (let [cref (canonical-ref* entity-by-id ref)]
+                        (dissoc-in entity-by-id cref)))]
+      (swap! rf-db/app-db
+             update :vrac.db.entity/by-id
+             (fn [entity-by-id]
+               (reduce (fn [entity-by-id change]
+                         (let [f ({:vrac.db.change/create create-fn
+                                   :vrac.db.change/update update-fn
+                                   :vrac.db.change/delete delete-fn} (first change))]
+                           (f entity-by-id change)))
+                       entity-by-id
+                       changes))))))
 
 
 ;; -- Setup - interceptors ----------------------------------------------------
@@ -98,11 +146,6 @@
     (from-ref db ref)))
 
 (rf/reg-sub
-  :vrac.db/follow-relation
-  (fn [db [_ ref relation]]
-    (follow-relation db ref relation)))
-
-(rf/reg-sub
-  :vrac.db/follow-relations
-  (fn [db [_ ref relations]]
-    (follow-relations db ref relations)))
+  :vrac.db/canonical-ref
+  (fn [db [_ ref]]
+    (canonical-ref db ref)))
