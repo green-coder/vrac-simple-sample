@@ -50,7 +50,7 @@
 
 '(defc timer-comp [timer]
    (let [interval-handle (state {:on-init (fn []
-                                            (js/setInterval #(v/dispatch [:timer/update-current-time ^ref timer]) 1000))
+                                            (js/setInterval #(v/dispatch [:timer/update-current-time ^canonical-ref timer]) 1000))
                                  :on-delete (fn [val]
                                               (js/clearInterval val))})
          color (:color timer)]
