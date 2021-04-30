@@ -22,8 +22,17 @@
 (defn change-update [ref value]
   [:vrac.db.change/update ref value])
 
+(defn change-insert [ref value]
+  [:vrac.db.change/insert ref value])
+
 (defn change-remove [ref]
   [:vrac.db.change/remove ref])
+
+(defn change-conj [ref value]
+  [:vrac.db.change/conj ref value])
+
+(defn change-disj [ref value]
+  [:vrac.db.change/disj ref value])
 
 (defn change-delete [ref]
   [:vrac.db.change/delete ref])
@@ -62,11 +71,24 @@
                  val)))
       path)))
 
+(defn- canonical-ref-
+  "Doesn't 'canonical' the last element of the ref"
+  [entity-by-id ref]
+  (let [parent-cref (canonical-ref* entity-by-id (butlast ref))]
+    (follow-relation parent-cref (last ref))))
+
 (defn canonical-ref [db ref]
   (canonical-ref* (:vrac.db.entity/by-id db) ref))
 
 
 ;; -- Setup - effects ---------------------------------------------------------
+
+(defn- safe-assoc-in
+  "Same as assoc-in, but also supports empty paths."
+  [m path val]
+  (if (seq path)
+    (assoc-in m path val)
+    val))
 
 (defn- safe-update-in
   "Same as update-in, but also supports empty paths."
@@ -74,6 +96,31 @@
   (if (seq path)
     (apply update-in m path f args)
     (apply f m args)))
+
+
+;; Works for vectors.
+(defn- insert-in [data path val]
+  (safe-update-in data (butlast path)
+                  (fn [container]
+                    (assert (vector? container) "insert-in only works on vectors.")
+                    (let [index (last path)]
+                      (into (conj (subvec container 0 index) val)
+                            (subvec container index))))))
+
+;; Works for vectors and sets.
+(defn- conj-in [data path val]
+  (safe-update-in data path
+                  (fn [container]
+                    (assert (or (vector? container)
+                                (set? container)) "conj-in only works on vectors and sets.")
+                    (conj container val))))
+
+;; Works for sets.
+(defn- disj-in [data path]
+  (safe-update-in data path
+                  (fn [container]
+                    (assert (set? container) "disj-in only works on sets.")
+                    (disj container val))))
 
 
 ;; Works for vectors and maps.
@@ -101,11 +148,18 @@
           update-fn (fn [entity-by-id [_ ref value]]
                       (let [cref (canonical-ref* entity-by-id ref)]
                         (assoc-in entity-by-id cref value)))
+          insert-fn (fn [entity-by-id [_ ref value]]
+                      (let [cref (canonical-ref- entity-by-id ref)]
+                        (insert-in entity-by-id cref value)))
           remove-fn (fn [entity-by-id [_ ref]]
-                      ;; Don't "canonical" last element of the ref
-                      (let [parent-cref (canonical-ref* entity-by-id (butlast ref))
-                            cref (follow-relation parent-cref (last ref))]
+                      (let [cref (canonical-ref- entity-by-id ref)]
                         (dissoc-in entity-by-id cref)))
+          conj-fn (fn [entity-by-id [_ ref value]]
+                    (let [cref (canonical-ref* entity-by-id ref)]
+                      (conj-in entity-by-id cref value)))
+          disj-fn (fn [entity-by-id [_ ref]]
+                    (let [cref (canonical-ref* entity-by-id ref)]
+                      (disj-in entity-by-id cref)))
           delete-fn (fn [entity-by-id [_ ref]]
                       (let [cref (canonical-ref* entity-by-id ref)]
                         (dissoc-in entity-by-id cref)))]
@@ -115,7 +169,10 @@
                (reduce (fn [entity-by-id change]
                          (let [f ({:vrac.db.change/create create-fn
                                    :vrac.db.change/update update-fn
+                                   :vrac.db.change/insert insert-fn
                                    :vrac.db.change/remove remove-fn
+                                   :vrac.db.change/conj   conj-fn
+                                   :vrac.db.change/disj   disj-fn
                                    :vrac.db.change/delete delete-fn} (first change))]
                            (f entity-by-id change)))
                        entity-by-id

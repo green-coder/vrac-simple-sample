@@ -5,7 +5,7 @@
             [vrac.db :refer [Id]]
             [vrac.reframe :refer [with-id ensure-id
                                   follow-relation follow-relations from-ref
-                                  change-create change-update change-remove change-delete]]
+                                  change-create change-update change-insert change-remove change-conj change-disj change-delete]]
             [simple.util :refer [pp-str]]))
 
 ;; -- Setup - coeffects -------------------------------------------------------
@@ -32,18 +32,16 @@
 (rf/reg-event-fx
   :timer/create
   [(rf/inject-cofx :time/now)]
-  (fn [{:keys [db time/now]} _]
+  (fn [{:keys [time/now]} _]
     (let [timer (-> {:timer/start-time    now
                      :timer/display-value (time-in-ms->display-value 0)
                      :color               "#888"}
                     ensure-id)
           ;; TODO: won't work when multiple timer-list can exist.
           ;; TODO: Introduce :timer/timer-lists and computed data.
-          timers-ref (follow-relations nil [(Id. :timer-list) :timer-list/timers])
-          timers (from-ref db timers-ref)
-          updated-timers (conj timers (:vrac.db/id timer))]
+          timers-ref (follow-relations nil [(Id. :timer-list) :timer-list/timers])]
       {:vrac.db/changes [(change-create timer)
-                         (change-update timers-ref updated-timers)]})))
+                         (change-conj timers-ref (:vrac.db/id timer))]})))
 
 (rf/reg-event-fx
   :timer/delete
